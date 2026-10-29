@@ -7,9 +7,7 @@ services:
       POSTGRES_DB: trace_india
     ports:
       - "5432:5432"
-    networks:
-      - triage_net
-    # Optional: persist data
+    # optional volume for persistence
     # volumes:
     #   - db_data:/var/lib/postgresql/data
 
@@ -23,15 +21,10 @@ services:
       - db
     ports:
       - "8000:8000"
-    networks:
-      - triage_net
-    # Using host DNS (Google) to avoid DNS resolution issues inside containers
-    dns:
-      - 8.8.8.8
-    # If you need the container to use the host network for outbound internet access,
-    # uncomment the line below. Note: on Windows Docker Desktop this may not be supported.
-    # network_mode: "host"
     command: uvicorn backend.app:app --host 0.0.0.0 --port 8000
+    volumes:
+      - ./data:/app/data
+      - ./storage:/app/storage
 
   frontend:
     image: node:20-alpine
@@ -45,18 +38,3 @@ services:
       - VITE_API_URL=http://localhost:8000
     depends_on:
       - backend
-    networks:
-      - triage_net
-    dns:
-      - 8.8.8.8
-
-networks:
-  triage_net:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 192.168.65.0/24
-
-# Uncomment to persist DB data
-#volumes:
-#  db_data:

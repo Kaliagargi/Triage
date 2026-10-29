@@ -5,6 +5,8 @@ import random
 import uuid
 from datetime import datetime
 from shapely.geometry import Point, Polygon, mapping
+import json
+
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -12,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from backend.models import Base, Report, Incident, Gazetteer, AdminArea, HazardArea
 from backend.db import DATABASE_URL  # assume defined in db.py or env
 
-# Helper to create async engine
+print(f"[DEBUG] Using DATABASE_URL: {DATABASE_URL}")
 engine = create_async_engine(DATABASE_URL, echo=False)
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -22,7 +24,7 @@ async def create_admin_area(session: AsyncSession):
     admin = AdminArea(
         id="demo_district",
         name="Demo District",
-        boundary=mapping(poly),
+        boundary=json.dumps(mapping(poly)),
         source="synthetic",
         is_synthetic=True,
     )
@@ -34,9 +36,9 @@ async def create_hazard_area(session: AsyncSession):
     # Simple flood polygon intersecting district
     flood = Polygon([ (77.2, 28.2), (77.8, 28.2), (77.8, 28.8), (77.2, 28.8), (77.2, 28.2) ])
     hazard = HazardArea(
-        id=uuid.uuid4(),
+        id=str(uuid.uuid4()),
         hazard_type="flood",
-        geometry=mapping(flood),
+        geometry=json.dumps(mapping(flood)),
         source="synthetic",
         source_date=datetime.utcnow().date(),
         is_illustrative=True,
@@ -53,13 +55,13 @@ async def create_gazetteer(session: AsyncSession):
     ]
     for p in places:
         gaz = Gazetteer(
-            id=uuid.uuid4(),
+            id=str(uuid.uuid4()),
             name=p["name"],
             normalized_name=p["name"].lower(),
             aliases=p["aliases"],
             feature_type="landmark",
             admin_area_id="demo_district",
-            location=mapping(p["point"]),
+            location=json.dumps(mapping(p["point"])),
             source="synthetic",
             verified_for_demo=True,
         )
@@ -72,7 +74,7 @@ async def create_synthetic_reports(session: AsyncSession, count: int = 30):
         lon = random.uniform(77.0, 78.0)
         lat = random.uniform(28.0, 29.0)
         report = Report(
-            id=uuid.uuid4(),
+            id=str(uuid.uuid4()),
             audio_path="synthetic.wav",
             audio_sha256="synthetic",
             fixture_id=None,
@@ -86,12 +88,12 @@ async def create_synthetic_reports(session: AsyncSession, count: int = 30):
         session.add(report)
         # Create a minimal incident linked to this report
         incident = Incident(
-            id=uuid.uuid4(),
+            id=str(uuid.uuid4()),
             report_id=report.id,
             hazard_type="flood",
             urgency="low",
             place_phrase_original="synthetic report",
-            location=mapping(Point(lon, lat)),
+            location=json.dumps(mapping(Point(lon, lat))),
             approximate_area=None,
             review_status="auto",
         )

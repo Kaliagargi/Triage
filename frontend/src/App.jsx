@@ -26,7 +26,7 @@ export default function App() {
   // Fetch map data once
   const fetchMapData = useCallback(async () => {
     try {
-      const resp = await fetch('/api/map-data');
+      const resp = await fetch(`${import.meta.env.VITE_API_URL}/api/map-data`);
       const data = await resp.json();
       setGeoData(data);
     } catch (e) {
