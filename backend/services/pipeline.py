@@ -45,7 +45,7 @@ async def process_report(report_id: str, audio_path: str, sha256: str, db) -> No
     await db.commit()
 
     # 3. Landmark geocoding
-    location_res = resolve_location(extraction.get("place_phrase"), extraction.get("anchor_name"), extraction.get("spatial_relation"))
+    location_res = resolve_location(extraction.get("place_phrase"), extraction.get("anchor_name"), extraction.get("spatial_relation"), db)
 
     # 4. Create Incident row
     incident_id = str(uuid.uuid4())

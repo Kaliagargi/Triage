@@ -1,0 +1,65 @@
+/* Premium dark mode with glassmorphism and smooth hover effects */
+:root {
+  --font-family: 'Inter', sans-serif;
+  --gradient-start: hsl(210, 30%, 12%);
+  --gradient-end: hsl(210, 20%, 8%);
+  --accent: hsl(170, 70%, 45%);
+  --card-bg: rgba(255, 255, 255, 0.08);
+  --card-blur: 12px;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  font-family: var(--font-family);
+  background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+  color: #fff;
+}
+
+.app-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 2rem;
+  background: var(--card-bg);
+  backdrop-filter: blur(var(--card-blur));
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: var(--accent);
+}
+
+.toggle-btn {
+  background: var(--accent);
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  color: #000;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.toggle-btn:hover {
+  background: hsl(170, 70%, 55%);
+  transform: translateY(-2px);
+}
+
+.map-container {
+  flex: 1;
+  position: relative;
+}
+
+#map {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+}

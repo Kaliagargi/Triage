@@ -7,6 +7,7 @@ from .db import get_db, Base
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import List, Optional
+import json
 
 router = APIRouter()
 
@@ -71,12 +72,50 @@ async def get_report(report_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.get("/api/map-data")
 async def map_data(db: AsyncSession = Depends(get_db)):
-    # Return GeoJSON for district, hazard, reports, silent zones
-    # Placeholder static data
-    return {
-        "type": "FeatureCollection",
-        "features": []
-    }
+    # Build GeoJSON with incidents (points) and silent zones (polygons)
+    # Fetch incidents
+    incident_stmt = """
+    SELECT id, location, approximate_area FROM incidents WHERE location IS NOT NULL
+    """
+    incident_res = await db.execute(incident_stmt)
+    incident_rows = incident_res.fetchall()
+    # Fetch silent zones with a demo threshold
+    sz_stmt = """
+    SELECT area_id, final_score FROM silent_zone_scores WHERE final_score >= 0.5
+    """
+    sz_res = await db.execute(sz_stmt)
+    sz_rows = sz_res.fetchall()
+    features = []
+    for row in incident_rows:
+        geom = row.location  # stored as WKT string
+        # Convert WKT to GeoJSON using shapely (import lazily)
+        from shapely.wkt import loads as load_wkt
+        point = load_wkt(geom)
+        features.append({
+            "type": "Feature",
+            "geometry": json.loads(json.dumps(point.__geo_interface__)),
+            "properties": {"id": str(row.id), "type": "incident"},
+        })
+    for row in sz_rows:
+        # Assume area_id corresponds to a tile geometry stored elsewhere; for demo we create a square tile
+        x_str, y_str = row.area_id.split("_")
+        x = float(x_str)
+        y = float(y_str)
+        size = float(os.getenv("TILE_SIZE_DEG", "0.01"))
+        from shapely.geometry import Polygon
+        poly = Polygon([
+            (x, y),
+            (x + size, y),
+            (x + size, y + size),
+            (x, y + size),
+            (x, y),
+        ])
+        features.append({
+            "type": "Feature",
+            "geometry": json.loads(json.dumps(poly.__geo_interface__)),
+            "properties": {"id": row.area_id, "type": "silent_zone", "score": row.final_score},
+        })
+    return {"type": "FeatureCollection", "features": features}
 
 @router.patch("/api/incidents/{incident_id}")
 async def patch_incident(incident_id: str, payload: dict, db: AsyncSession = Depends(get_db)):
