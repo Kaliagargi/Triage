@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, DateTime, Enum, Float, Integer, Boolean, JSON, ForeignKey, ARRAY, func
+from sqlalchemy import Column, String, Text, DateTime, Float, Boolean, JSON, ARRAY, func
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
 from .db import Base
@@ -16,6 +16,8 @@ class Report(Base):
     transcript_language = Column(String, nullable=True)
     transcript_mode = Column(String, nullable=True)  # LIVE or CACHED
     transcription_error = Column(Text, nullable=True)
+    extraction = Column(JSON, nullable=True)
+    is_synthetic = Column(Boolean, default=False)  # synthetic background reports
 
 class Incident(Base):
     __tablename__ = "incidents"
@@ -28,7 +30,7 @@ class Incident(Base):
     place_phrase_original = Column(String, nullable=True)
     anchor_name = Column(String, nullable=True)
     spatial_relation = Column(String, nullable=True)
-    location = Column(String, nullable=True)  # WKT POINT for simplicity
+    location = Column(String, nullable=True)  # WKT POINT for simplicity (replace with Geometry later)
     approximate_area = Column(String, nullable=True)  # WKT POLYGON
     location_confidence = Column(Float, nullable=True)
     extraction_confidence = Column(Float, nullable=True)
