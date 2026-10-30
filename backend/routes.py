@@ -348,6 +348,7 @@ async def get_latest_silent_zones(db: AsyncSession = Depends(get_db)):
                 "expected_reports": row.expected_reports,
                 "silence_factor": row.silence_factor,
                 "silent_score": row.final_score,
+                "silent_class": "Class 2" if (row.final_score or 0) >= 0.66 else "Class 1" if (row.final_score or 0) >= 0.33 else "Class 0",
                 "quality_flag": row.quality_flag,
                 "config_version": row.config_version,
             },
@@ -358,6 +359,6 @@ async def get_latest_silent_zones(db: AsyncSession = Depends(get_db)):
         "features": features,
         "metadata": {
             "quality_flag": "ILLUSTRATIVE_BASELINE" if features else None,
-            "note": "Scores use configurable demo baselines; they are not measured population or hazard risk.",
+            "note": "Scores are illustrative. Flood exposure uses the synthetic demo polygon where available; this is not a measured hazard or population-risk layer.",
         },
     }
