@@ -7,6 +7,7 @@ from datetime import datetime
 from shapely.geometry import Point, Polygon, mapping
 import json
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -24,7 +25,7 @@ async def create_admin_area(session: AsyncSession):
     admin = AdminArea(
         id="demo_district",
         name="Demo District",
-        boundary=json.dumps(mapping(poly)),
+        boundary=mapping(poly),
         source="synthetic",
         is_synthetic=True,
     )
@@ -38,9 +39,9 @@ async def create_hazard_area(session: AsyncSession):
     hazard = HazardArea(
         id=str(uuid.uuid4()),
         hazard_type="flood",
-        geometry=json.dumps(mapping(flood)),
+        geometry=mapping(flood),
         source="synthetic",
-        source_date=datetime.utcnow().date(),
+        source_date=datetime.utcnow(),
         is_illustrative=True,
     )
     session.add(hazard)
@@ -49,9 +50,9 @@ async def create_hazard_area(session: AsyncSession):
 
 async def create_gazetteer(session: AsyncSession):
     places = [
-        {"name": "mandir", "aliases": ["temple"], "point": Point(77.5, 28.5)},
-        {"name": "puliya", "aliases": ["bridge"], "point": Point(77.6, 28.55)},
-        {"name": "school", "aliases": [], "point": Point(77.4, 28.45)},
+        {"name": "mandir", "aliases": ["temple", "kali mandir", "काली मंदिर", "मंदिर"], "point": Point(77.5, 28.5)},
+        {"name": "puliya", "aliases": ["bridge", "पुलिया"], "point": Point(77.6, 28.55)},
+        {"name": "school", "aliases": ["विद्यालय", "स्कूल"], "point": Point(77.4, 28.45)},
     ]
     for p in places:
         gaz = Gazetteer(
@@ -61,7 +62,7 @@ async def create_gazetteer(session: AsyncSession):
             aliases=p["aliases"],
             feature_type="landmark",
             admin_area_id="demo_district",
-            location=json.dumps(mapping(p["point"])),
+            location=mapping(p["point"]),
             source="synthetic",
             verified_for_demo=True,
         )
@@ -93,19 +94,58 @@ async def create_synthetic_reports(session: AsyncSession, count: int = 30):
             hazard_type="flood",
             urgency="low",
             place_phrase_original="synthetic report",
-            location=json.dumps(mapping(Point(lon, lat))),
+            location=mapping(Point(lon, lat)),
             approximate_area=None,
-            review_status="auto",
+            lat=lat,
+            lon=lon,
+            extraction_confidence=0.75,
+            location_confidence=0.75,
+            review_status="needs_review",
+            is_synthetic=True,
         )
         session.add(incident)
     await session.flush()
 
 async def main():
     async with AsyncSessionLocal() as session:
-        # Drop and recreate tables for a clean demo
+        # Create missing tables without deleting real or previously reviewed data.
         async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.drop_all)
             await conn.run_sync(Base.metadata.create_all)
+        existing = await session.execute(select(AdminArea).where(AdminArea.id == "demo_district"))
+        if existing.scalar_one_or_none():
+            # Backfill records created by the earlier demo seeder without touching real reports.
+            aliases_by_name = {
+                "mandir": ["temple", "kali mandir", "काली मंदिर", "मंदिर"],
+                "puliya": ["bridge", "पुलिया"],
+                "school": ["विद्यालय", "स्कूल"],
+            }
+            gazetteer_rows = await session.execute(
+                select(Gazetteer).where(Gazetteer.admin_area_id == "demo_district")
+            )
+            for gaz in gazetteer_rows.scalars().all():
+                gaz.aliases = aliases_by_name.get(gaz.normalized_name, gaz.aliases or [])
+            synthetic_rows = await session.execute(
+                select(Incident).join(Report, Incident.report_id == Report.id).where(Report.is_synthetic.is_(True))
+            )
+            for incident in synthetic_rows.scalars().all():
+                geometry = incident.location
+                if isinstance(geometry, str):
+                    try:
+                        geometry = json.loads(geometry)
+                    except json.JSONDecodeError:
+                        geometry = None
+                if geometry:
+                    try:
+                        point = Point(shape(geometry).x, shape(geometry).y)
+                        incident.location = mapping(point)
+                        incident.lat, incident.lon = point.y, point.x
+                    except Exception:
+                        pass
+                incident.is_synthetic = True
+            await session.commit()
+            print("[INFO] Existing demo seed repaired; real reports were preserved.")
+            await engine.dispose()
+            return
         await create_admin_area(session)
         await create_hazard_area(session)
         await create_gazetteer(session)

@@ -7,17 +7,19 @@ labelled ILLUSTRATIVE_BASELINE and must not be interpreted as measured risk.
 """
 import math
 import os
+import json
 from typing import Dict, List
 from uuid import uuid4
 
 from loguru import logger
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from shapely.geometry import Polygon, mapping
+from shapely.geometry import Polygon, mapping, shape
+from shapely.ops import unary_union
 
-from ..models import Incident, SilentZoneScore
+from ..models import Incident, SilentZoneScore, HazardArea
 
-TILE_SIZE_DEG = float(os.getenv("TILE_SIZE_DEG", "0.01"))
+TILE_SIZE_DEG = float(os.getenv("TILE_SIZE_DEG", "0.05"))
 EXPECTED_REPORTS_PER_TILE = float(os.getenv("EXPECTED_REPORTS_PER_TILE", "2.0"))
 EXPOSURE_BASELINE = float(os.getenv("SILENT_ZONE_EXPOSURE", "1.0"))
 VULNERABILITY_BASELINE = float(os.getenv("SILENT_ZONE_VULNERABILITY", "1.0"))
@@ -122,10 +124,33 @@ def _build_grid(points: List[tuple]) -> List[dict]:
     return cells
 
 
+async def _load_hazard_geometry(db: AsyncSession):
+    result = await db.execute(select(HazardArea.geometry).where(HazardArea.hazard_type == "flood"))
+    geometries = []
+    for value in result.scalars().all():
+        try:
+            if isinstance(value, str):
+                value = json.loads(value)
+            geometries.append(shape(value))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            logger.warning("Ignoring malformed illustrative hazard geometry")
+    return unary_union(geometries) if geometries else None
+
+
+def _exposure_for_cell(area_id: str, hazard_geometry) -> float:
+    if hazard_geometry is None:
+        return EXPOSURE_BASELINE
+    cell = polygon_for_area_id(area_id)
+    if not cell.area:
+        return 0.0
+    return max(0.0, min(1.0, cell.intersection(hazard_geometry).area / cell.area))
+
+
 async def compute_silent_zones(db: AsyncSession) -> dict:
     """Replace the latest snapshot with a full grid, including zero-report cells."""
     points = await _load_geolocated_incidents(db)
     cells = _build_grid(points)
+    hazard_geometry = await _load_hazard_geometry(db)
 
     # The table has no run_id column. Keep one current snapshot rather than
     # mixing cells from different computation runs in the API response.
@@ -133,7 +158,8 @@ async def compute_silent_zones(db: AsyncSession) -> dict:
 
     rows = []
     for cell in cells:
-        score = calculate_silence_score(cell["observed_reports"])
+        exposure = _exposure_for_cell(cell["area_id"], hazard_geometry)
+        score = calculate_silence_score(cell["observed_reports"], exposure=exposure)
         rows.append(SilentZoneScore(
             id=str(uuid4()),
             area_id=cell["area_id"],
@@ -145,7 +171,7 @@ async def compute_silent_zones(db: AsyncSession) -> dict:
             silence_factor=score["silence_factor"],
             final_score=score["final_score"],
             quality_flag="ILLUSTRATIVE_BASELINE",
-            config_version="grid-v2",
+            config_version="grid-v3",
         ))
 
     if rows:
@@ -163,5 +189,5 @@ async def compute_silent_zones(db: AsyncSession) -> dict:
         "silent_cell_count": silent_count,
         "geolocated_report_count": len(points),
         "quality_flag": "ILLUSTRATIVE_BASELINE",
-        "config_version": "grid-v2",
+        "config_version": "grid-v3",
     }
