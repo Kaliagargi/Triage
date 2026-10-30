@@ -50,9 +50,9 @@ async def create_hazard_area(session: AsyncSession):
 
 async def create_gazetteer(session: AsyncSession):
     places = [
-        {"name": "mandir", "aliases": ["temple"], "point": Point(77.5, 28.5)},
-        {"name": "puliya", "aliases": ["bridge"], "point": Point(77.6, 28.55)},
-        {"name": "school", "aliases": [], "point": Point(77.4, 28.45)},
+        {"name": "mandir", "aliases": ["temple", "kali mandir", "काली मंदिर", "मंदिर"], "point": Point(77.5, 28.5)},
+        {"name": "puliya", "aliases": ["bridge", "पुलिया"], "point": Point(77.6, 28.55)},
+        {"name": "school", "aliases": ["विद्यालय", "स्कूल"], "point": Point(77.4, 28.45)},
     ]
     for p in places:
         gaz = Gazetteer(
