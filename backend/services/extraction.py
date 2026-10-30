@@ -28,7 +28,8 @@ RELATION_PATTERNS = [
 FILLER = {"paani", "pani", "bhar", "gaya", "gayi", "hai", "hain", "ho", "raha", "rahi", "flood", "water", "is", "has", "the", "at", "near", "behind", "peeche", "paas", "ke", "of", "in"}
 
 def load_fixture(sha256: str) -> Dict[str, Any]:
-    path = os.path.join(FIXTURE_DIR, f"{sha256}.json")
+    fixture_dir = os.getenv("EXTRACTION_FIXTURE_DIR", FIXTURE_DIR)
+    path = os.path.join(fixture_dir, f"{sha256}.json")
     if not os.path.isfile(path):
         return {}
     try:
