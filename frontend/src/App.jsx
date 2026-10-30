@@ -120,11 +120,6 @@ export default function App() {
         filter: ['==', ['get', 'type'], 'incident'],
         maxzoom: 15,
         paint: {
-          'heatmap-weight': [
-            'interpolate', ['linear'], ['get', 'urgency'],
-            0, 0.5,
-            1, 0.8,
-          ],
           'heatmap-intensity': 1.1,
           'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 5, 18, 12, 36],
           'heatmap-opacity': 0.72,
