@@ -17,7 +17,7 @@ from shapely.geometry import Polygon, mapping
 
 from ..models import Incident, SilentZoneScore
 
-TILE_SIZE_DEG = float(os.getenv("TILE_SIZE_DEG", "0.01"))
+TILE_SIZE_DEG = float(os.getenv("TILE_SIZE_DEG", "0.05"))
 EXPECTED_REPORTS_PER_TILE = float(os.getenv("EXPECTED_REPORTS_PER_TILE", "2.0"))
 EXPOSURE_BASELINE = float(os.getenv("SILENT_ZONE_EXPOSURE", "1.0"))
 VULNERABILITY_BASELINE = float(os.getenv("SILENT_ZONE_VULNERABILITY", "1.0"))
