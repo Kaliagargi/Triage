@@ -1,0 +1,55 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [77.2090, 28.6139]},
+      "properties": {"id": "dest_01", "name": "New Delhi", "category": "Historical/Capital", "state": "Delhi", "rating": 4.5, "seeded": true}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [75.8577, 26.9124]},
+      "properties": {"id": "dest_02", "name": "Jaipur", "category": "Heritage/Tourism", "state": "Rajasthan", "rating": 4.8, "seeded": true}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [72.8777, 19.0760]},
+      "properties": {"id": "dest_03", "name": "Mumbai", "category": "Metropolis/Coastal", "state": "Maharashtra", "rating": 4.6, "seeded": true}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [73.8567, 15.2993]},
+      "properties": {"id": "dest_04", "name": "Goa", "category": "Beach/Leisure", "state": "Goa", "rating": 4.7, "seeded": true}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [80.2707, 13.0827]},
+      "properties": {"id": "dest_05", "name": "Chennai", "category": "Metropolis/Coastal", "state": "Tamil Nadu", "rating": 4.4, "seeded": true}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [88.3639, 22.5726]},
+      "properties": {"id": "dest_06", "name": "Kolkata", "category": "Cultural/Capital", "state": "West Bengal", "rating": 4.3, "seeded": true}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [77.5946, 12.9716]},
+      "properties": {"id": "dest_07", "name": "Bengaluru", "category": "Technology/Capital", "state": "Karnataka", "rating": 4.5, "seeded": true}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [78.0421, 27.1751]},
+      "properties": {"id": "dest_08", "name": "Agra", "category": "Heritage/Tourism", "state": "Uttar Pradesh", "rating": 4.9, "seeded": true}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [83.0007, 25.3176]},
+      "properties": {"id": "dest_09", "name": "Varanasi", "category": "Religious/Cultural", "state": "Uttar Pradesh", "rating": 4.6, "seeded": true}
+    },
+    {
+      "type": "Feature",
+      "geometry": {"type": "Point", "coordinates": [78.4867, 17.3850]},
+      "properties": {"id": "dest_10", "name": "Hyderabad", "category": "Historical/Technology", "state": "Telangana", "rating": 4.5, "seeded": true}
+    }
+  ]
+}

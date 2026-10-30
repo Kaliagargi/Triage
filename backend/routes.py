@@ -2,16 +2,26 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, status
 from fastapi.responses import JSONResponse
 from uuid import uuid4
 import hashlib
+import json
 import os
-from .db import get_db, Base
+from pathlib import Path
+from typing import List, Optional
+
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
-from typing import List, Optional
-import json
+from loguru import logger
+
+from .db import get_db
+from .models import Report, Incident, Feedback
 
 router = APIRouter()
 
-# Simple Pydantic models for responses
+
+# ---------------------------------------------------------------------------
+# Pydantic response models
+# ---------------------------------------------------------------------------
+
 class ReportStatus(BaseModel):
     id: str
     status: str
@@ -20,108 +30,218 @@ class ReportStatus(BaseModel):
     extraction: Optional[dict] = None
     location: Optional[dict] = None
 
+
 class IncidentResponse(BaseModel):
     id: str
     report_id: str
-    hazard_type: Optional[str]
-    urgency: Optional[str]
-    place_phrase_original: Optional[str]
-    anchor_name: Optional[str]
-    spatial_relation: Optional[str]
-    geometry: Optional[dict]
-    review_status: Optional[str]
+    hazard_type: Optional[str] = None
+    urgency: Optional[str] = None
+    place_phrase_original: Optional[str] = None
+    anchor_name: Optional[str] = None
+    spatial_relation: Optional[str] = None
+    geometry: Optional[dict] = None
+    review_status: Optional[str] = None
+    lat: Optional[float] = None
+    lon: Optional[float] = None
 
-# In‑memory store for demo (real DB usage would be via SQLAlchemy models)
-# For brevity, we will just outline the logic; actual DB models are defined elsewhere.
+
+# ---------------------------------------------------------------------------
+# Health check
+# ---------------------------------------------------------------------------
 
 @router.get("/api/health")
 async def health_check(db: AsyncSession = Depends(get_db)):
     try:
-        await db.execute("SELECT 1")
+        await db.execute(text("SELECT 1"))
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ---------------------------------------------------------------------------
+# Reports
+# ---------------------------------------------------------------------------
+
 @router.post("/api/reports", response_model=ReportStatus)
-async def upload_report(file: UploadFile = File(...), source_channel: str = "demo", db: AsyncSession = Depends(get_db)):
-    # Simple validation
-    if file.content_type not in ["audio/wav", "audio/mpeg", "audio/mp3"]:
+async def upload_report(
+    file: UploadFile = File(...),
+    source_channel: str = "demo",
+    db: AsyncSession = Depends(get_db),
+):
+    # Validate content type
+    allowed = {"audio/wav", "audio/mpeg", "audio/mp3", "audio/x-wav", "audio/wave"}
+    if file.content_type not in allowed:
         raise HTTPException(status_code=400, detail="Unsupported audio format")
+
     contents = await file.read()
     sha256 = hashlib.sha256(contents).hexdigest()
     report_id = str(uuid4())
+
     # Save audio to storage directory
     storage_dir = os.getenv("AUDIO_STORAGE", "storage/audio")
     os.makedirs(storage_dir, exist_ok=True)
     audio_path = os.path.join(storage_dir, f"{report_id}.wav")
     with open(audio_path, "wb") as f:
         f.write(contents)
-    # Insert report placeholder into DB (pseudo‑code)
-    # TODO: actual ORM insert
-    # Start pipeline (in‑process for demo)
+
+    # ---- INSERT the Report row FIRST ----
+    report = Report(
+        id=report_id,
+        audio_path=audio_path,
+        audio_sha256=sha256,
+        source_channel=source_channel,
+        status="pending",
+    )
+    db.add(report)
+    await db.commit()
+    logger.info(f"Report {report_id} created (sha256={sha256[:12]}…)")
+
+    # Run pipeline (in-process for demo)
     from .services.pipeline import process_report
     await process_report(report_id, audio_path, sha256, db)
+
     return ReportStatus(id=report_id, status="processing")
+
 
 @router.get("/api/reports/{report_id}", response_model=ReportStatus)
 async def get_report(report_id: str, db: AsyncSession = Depends(get_db)):
-    # Placeholder: fetch from DB and return current fields
-    # For demo we return a static structure
-    # TODO: replace with real query
-    return ReportStatus(id=report_id, status="completed", transcript_mode="CACHED", transcript_text="example cached transcript", extraction={"hazard_type": "flood"}, location={"type": "Point", "coordinates": [77.0, 28.5]})
+    stmt = select(Report).where(Report.id == report_id)
+    result = await db.execute(stmt)
+    report = result.scalar_one_or_none()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    # Parse extraction JSON if stored as string
+    extraction = report.extraction
+    if isinstance(extraction, str):
+        try:
+            extraction = json.loads(extraction)
+        except (json.JSONDecodeError, TypeError):
+            extraction = None
+
+    return ReportStatus(
+        id=report.id,
+        status=report.status,
+        transcript_mode=report.transcript_mode,
+        transcript_text=report.transcript_text,
+        extraction=extraction,
+        location=None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Incidents
+# ---------------------------------------------------------------------------
+
+@router.get("/api/incidents", response_model=List[IncidentResponse])
+async def list_incidents(db: AsyncSession = Depends(get_db)):
+    stmt = select(Incident).order_by(Incident.created_at.desc())
+    result = await db.execute(stmt)
+    incidents = result.scalars().all()
+    return [
+        IncidentResponse(
+            id=inc.id,
+            report_id=inc.report_id,
+            hazard_type=inc.hazard_type,
+            urgency=inc.urgency,
+            place_phrase_original=inc.place_phrase_original,
+            anchor_name=inc.anchor_name,
+            spatial_relation=inc.spatial_relation,
+            geometry=inc.location,
+            review_status=inc.review_status,
+            lat=inc.lat,
+            lon=inc.lon,
+        )
+        for inc in incidents
+    ]
+
+
+@router.patch("/api/incidents/{incident_id}")
+async def patch_incident(
+    incident_id: str, payload: dict, db: AsyncSession = Depends(get_db)
+):
+    # Fetch the incident
+    stmt = select(Incident).where(Incident.id == incident_id)
+    result = await db.execute(stmt)
+    incident = result.scalar_one_or_none()
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    # Updatable fields
+    updatable = {
+        "hazard_type", "urgency", "water_level_description", "needs",
+        "place_phrase_original", "anchor_name", "spatial_relation",
+        "review_status", "lat", "lon",
+    }
+
+    for field, new_value in payload.items():
+        if field not in updatable:
+            continue
+        old_value = getattr(incident, field, None)
+        setattr(incident, field, new_value)
+        # Record feedback for audit trail
+        fb = Feedback(
+            id=str(uuid4()),
+            incident_id=incident_id,
+            field=field,
+            before=str(old_value) if old_value is not None else None,
+            after=str(new_value) if new_value is not None else None,
+        )
+        db.add(fb)
+
+    await db.commit()
+    logger.info(f"Incident {incident_id} patched: {list(payload.keys())}")
+    return JSONResponse(content={"status": "updated", "fields": list(payload.keys())})
+
+
+# ---------------------------------------------------------------------------
+# Map data (GeoJSON FeatureCollection from incidents)
+# ---------------------------------------------------------------------------
 
 @router.get("/api/map-data")
 async def map_data(db: AsyncSession = Depends(get_db)):
-    # Build GeoJSON with incidents (points) and silent zones (polygons)
-    # Fetch incidents
-    incident_stmt = """
-    SELECT id, location, approximate_area FROM incidents WHERE location IS NOT NULL
-    """
-    incident_res = await db.execute(incident_stmt)
-    incident_rows = incident_res.fetchall()
-    # Fetch silent zones with a demo threshold
-    sz_stmt = """
-    SELECT area_id, final_score FROM silent_zone_scores WHERE final_score >= 0.5
-    """
-    sz_res = await db.execute(sz_stmt)
-    sz_rows = sz_res.fetchall()
+    """Build a GeoJSON FeatureCollection from incidents with coordinates."""
+    stmt = select(Incident).where(Incident.lat.isnot(None)).where(Incident.lon.isnot(None))
+    result = await db.execute(stmt)
+    incidents = result.scalars().all()
+
     features = []
-    for row in incident_rows:
-        geom = row.location  # stored as WKT string
-        # Convert WKT to GeoJSON using shapely (import lazily)
-        from shapely.wkt import loads as load_wkt
-        point = load_wkt(geom)
+    for inc in incidents:
         features.append({
             "type": "Feature",
-            "geometry": json.loads(json.dumps(point.__geo_interface__)),
-            "properties": {"id": str(row.id), "type": "incident"},
-        })
-    for row in sz_rows:
-        # Assume area_id corresponds to a tile geometry stored elsewhere; for demo we create a square tile
-        x_str, y_str = row.area_id.split("_")
-        x = float(x_str)
-        y = float(y_str)
-        size = float(os.getenv("TILE_SIZE_DEG", "0.01"))
-        from shapely.geometry import Polygon
-        poly = Polygon([
-            (x, y),
-            (x + size, y),
-            (x + size, y + size),
-            (x, y + size),
-            (x, y),
-        ])
-        features.append({
-            "type": "Feature",
-            "geometry": json.loads(json.dumps(poly.__geo_interface__)),
-            "properties": {"id": row.area_id, "type": "silent_zone", "score": row.final_score},
+            "geometry": {
+                "type": "Point",
+                "coordinates": [inc.lon, inc.lat],
+            },
+            "properties": {
+                "id": inc.id,
+                "type": "incident",
+                "hazard_type": inc.hazard_type,
+                "urgency": inc.urgency,
+                "review_status": inc.review_status,
+            },
         })
     return {"type": "FeatureCollection", "features": features}
 
-@router.patch("/api/incidents/{incident_id}")
-async def patch_incident(incident_id: str, payload: dict, db: AsyncSession = Depends(get_db)):
-    # Update incident with operator correction
-    # Placeholder implementation
-    return JSONResponse(content={"status": "updated"})
+
+# ---------------------------------------------------------------------------
+# Destinations (seeded India cities)
+# ---------------------------------------------------------------------------
+
+@router.get("/api/destinations")
+async def get_destinations():
+    """Serve static GeoJSON of seeded Indian destinations."""
+    data_path = Path(__file__).parent / "data" / "india_destinations.geojson"
+    if not data_path.exists():
+        raise HTTPException(status_code=404, detail="Destinations data not found")
+    with open(data_path, "r", encoding="utf-8") as f:
+        content = json.load(f)
+    return content
+
+
+# ---------------------------------------------------------------------------
+# Silent zones
+# ---------------------------------------------------------------------------
 
 @router.post("/api/silent-zones/run")
 async def run_silent_zones(db: AsyncSession = Depends(get_db)):

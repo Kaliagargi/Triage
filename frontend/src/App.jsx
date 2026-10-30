@@ -8,6 +8,7 @@ const MAPBOX_STYLE = 'https://demotiles.maplibre.org/style.json'; // Open source
 export default function App() {
   const [map, setMap] = useState(null);
   const [geoData, setGeoData] = useState(null);
+  const [destinations, setDestinations] = useState(null);
   const [showSilent, setShowSilent] = useState(false);
 
   // Initialize map once
@@ -34,53 +35,45 @@ export default function App() {
     }
   }, []);
 
-  // Load data on mount
-  useEffect(() => {
-    fetchMapData();
-  }, [fetchMapData]);
-
-  // Add or update layers when map and data are ready
-  useEffect(() => {
-    if (!map || !geoData) return;
-
-    // Remove existing sources/layers if they exist (idempotent)
-    if (map.getSource('demo-data')) {
-      map.removeLayer('reports');
-      map.removeLayer('silent-zones');
-      map.removeSource('demo-data');
+  // Fetch destinations data
+  const fetchDestinations = useCallback(async () => {
+    try {
+      const resp = await fetch(`${import.meta.env.VITE_API_URL}/api/destinations`);
+      const data = await resp.json();
+      setDestinations(data);
+    } catch (e) {
+      console.error('Failed to load destinations', e);
     }
-    map.addSource('demo-data', {
-      type: 'geojson',
-      data: geoData,
-    });
-    // Report points layer
+  }, []);
+
+  // Load destinations on mount
+  useEffect(() => {
+    fetchDestinations();
+  }, [fetchDestinations]);
+
+  // Add destinations layer when map and destinations are ready
+  useEffect(() => {
+    if (!map || !destinations) return;
+    // Remove existing layer if present
+    if (map.getSource('destinations')) {
+      map.removeLayer('destinations');
+      map.removeSource('destinations');
+    }
+    map.addSource('destinations', { type: 'geojson', data: destinations });
     map.addLayer({
-      id: 'reports',
+      id: 'destinations',
       type: 'circle',
-      source: 'demo-data',
+      source: 'destinations',
       filter: ['==', '$type', 'Point'],
       paint: {
         'circle-radius': 6,
-        'circle-color': '#ff6b6b',
+        'circle-color': '#4ecca3', // teal for destinations
         'circle-stroke-width': 1,
         'circle-stroke-color': '#fff',
       },
     });
-    // Silent zone polygon layer (initially hidden)
-    map.addLayer({
-      id: 'silent-zones',
-      type: 'fill',
-      source: 'demo-data',
-      filter: ['==', '$type', 'Polygon'],
-      layout: { visibility: showSilent ? 'visible' : 'none' },
-      paint: {
-        'fill-color': '#4ecca3',
-        'fill-opacity': 0.4,
-      },
-    });
-    // Update visibility when toggle changes
-    map.setLayoutProperty('silent-zones', 'visibility', showSilent ? 'visible' : 'none');
-  }, [map, geoData, showSilent]);
+  }, [map, destinations]);
+
 
   return (
     <div className="app-container">

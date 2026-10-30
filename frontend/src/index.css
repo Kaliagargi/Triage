@@ -30,6 +30,7 @@ html, body, #root {
   background: var(--card-bg);
   backdrop-filter: blur(var(--card-blur));
   border-bottom: 1px solid rgba(255,255,255,0.1);
+  z-index: 10; /* keep header above map */
 }
 
 .app-header h1 {
@@ -57,9 +58,35 @@ html, body, #root {
 .map-container {
   flex: 1;
   position: relative;
+  z-index: 1; /* map stays behind overlay UI */
 }
 
 #map {
   position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
+}
+
+/* Sidebar overlay for UI panels */
+.sidebar {
+  position: absolute;
+  top: 80px; /* below header */
+  left: 20px;
+  width: 320px;
+  max-height: calc(100% - 100px);
+  overflow-y: auto;
+  background: var(--card-bg);
+  backdrop-filter: blur(var(--card-blur));
+  border-radius: 0.8rem;
+  padding: 1rem;
+  z-index: 20; /* above map */
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+
+/* Simple scrollbar styling */
+.sidebar::-webkit-scrollbar {
+  width: 8px;
+}
+.sidebar::-webkit-scrollbar-thumb {
+  background: var(--accent);
+  border-radius: 4px;
 }

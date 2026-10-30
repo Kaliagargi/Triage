@@ -35,8 +35,21 @@ class Incident(Base):
     location_confidence = Column(Float, nullable=True)
     extraction_confidence = Column(Float, nullable=True)
     review_status = Column(String, nullable=True)
+    lat = Column(Float, nullable=True)
+    lon = Column(Float, nullable=True)
+    is_synthetic = Column(Boolean, default=False)
+    duplicate_of = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+class Feedback(Base):
+    __tablename__ = "feedback"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    incident_id = Column(String, ForeignKey("incidents.id"), nullable=False)
+    field = Column(String, nullable=False)
+    before = Column(String, nullable=True)
+    after = Column(String, nullable=True)
+    at = Column(DateTime(timezone=True), server_default=func.now())
 
 class Gazetteer(Base):
     __tablename__ = "gazetteer"
