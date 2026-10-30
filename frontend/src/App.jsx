@@ -12,10 +12,10 @@ const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 const EMPTY_FEATURES = { type: 'FeatureCollection', features: [] };
 
 async function fetchJson(path, options) {
-  const response = await fetch(\`${API_BASE}${path}\`, options);
+  const response = await fetch(`${API_BASE}${path}`, options);
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(detail || \`Request failed: ${response.status}\`);
+    throw new Error(detail || `Request failed: ${response.status}`);
   }
   return response.json();
 }
@@ -76,7 +76,7 @@ export default function App() {
     setBusy(true);
     setError('');
     try {
-      await fetchJson(\`/api/incidents/${report.incident.id}\`, {
+      await fetchJson(`/api/incidents/${report.incident.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ review_status: 'confirmed' }),
