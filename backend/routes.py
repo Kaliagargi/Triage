@@ -14,7 +14,7 @@ from shapely.geometry import Point, mapping
 from loguru import logger
 
 from .db import get_db
-from .models import Report, Incident, Feedback
+from .models import Report, Incident, Feedback, SilentZoneScore
 
 router = APIRouter()
 
@@ -239,27 +239,41 @@ async def patch_incident(
 
 @router.get("/api/map-data")
 async def map_data(db: AsyncSession = Depends(get_db)):
-    """Build a GeoJSON FeatureCollection from incidents with coordinates."""
-    stmt = select(Incident).where(Incident.lat.isnot(None)).where(Incident.lon.isnot(None))
-    result = await db.execute(stmt)
+    """Return incident points and approximate-location polygons as GeoJSON."""
+    result = await db.execute(select(Incident).order_by(Incident.created_at.desc()))
     incidents = result.scalars().all()
-
     features = []
+
     for inc in incidents:
-        features.append({
-            "type": "Feature",
-            "geometry": {
-                "type": "Point",
-                "coordinates": [inc.lon, inc.lat],
-            },
-            "properties": {
-                "id": inc.id,
-                "type": "incident",
-                "hazard_type": inc.hazard_type,
-                "urgency": inc.urgency,
-                "review_status": inc.review_status,
-            },
-        })
+        common = {
+            "id": inc.id,
+            "hazard_type": inc.hazard_type,
+            "urgency": inc.urgency,
+            "review_status": inc.review_status,
+            "extraction_confidence": inc.extraction_confidence,
+            "location_confidence": inc.location_confidence,
+            "is_synthetic": bool(inc.is_synthetic),
+        }
+        if inc.lat is not None and inc.lon is not None:
+            features.append({
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [inc.lon, inc.lat]},
+                "properties": {**common, "type": "incident"},
+            })
+        if inc.approximate_area:
+            area = inc.approximate_area
+            if isinstance(area, str):
+                try:
+                    area = json.loads(area)
+                except (json.JSONDecodeError, TypeError):
+                    area = None
+            if isinstance(area, dict) and area.get("type") and area.get("coordinates"):
+                features.append({
+                    "type": "Feature",
+                    "geometry": area,
+                    "properties": {**common, "type": "uncertainty_area"},
+                })
+
     return {"type": "FeatureCollection", "features": features}
 
 
@@ -285,5 +299,51 @@ async def get_destinations():
 @router.post("/api/silent-zones/run")
 async def run_silent_zones(db: AsyncSession = Depends(get_db)):
     from .services.silent_zones import compute_silent_zones
-    await compute_silent_zones(db)
-    return JSONResponse(content={"status": "silent zones computed"})
+    try:
+        return await compute_silent_zones(db)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.get("/api/silent-zones/latest")
+async def get_latest_silent_zones(db: AsyncSession = Depends(get_db)):
+    """Return the latest silent-zone snapshot as a GeoJSON FeatureCollection."""
+    from .services.silent_zones import polygon_for_area_id
+
+    result = await db.execute(
+        select(SilentZoneScore).order_by(SilentZoneScore.run_at.desc(), SilentZoneScore.id.desc())
+    )
+    rows = result.scalars().all()
+    latest_by_area = {}
+    for row in rows:
+        latest_by_area.setdefault(row.area_id, row)
+
+    features = []
+    for area_id, row in latest_by_area.items():
+        try:
+            geometry = mapping(polygon_for_area_id(area_id))
+        except (TypeError, ValueError):
+            logger.warning("Skipping malformed silent-zone area id: %s", area_id)
+            continue
+        features.append({
+            "type": "Feature",
+            "geometry": geometry,
+            "properties": {
+                "area_id": area_id,
+                "observed_reports": row.observed_reports,
+                "expected_reports": row.expected_reports,
+                "silence_factor": row.silence_factor,
+                "silent_score": row.final_score,
+                "quality_flag": row.quality_flag,
+                "config_version": row.config_version,
+            },
+        })
+
+    return {
+        "type": "FeatureCollection",
+        "features": features,
+        "metadata": {
+            "quality_flag": "ILLUSTRATIVE_BASELINE" if features else None,
+            "note": "Scores use configurable demo baselines; they are not measured population or hazard risk.",
+        },
+    }
