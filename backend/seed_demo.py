@@ -113,7 +113,37 @@ async def main():
             await conn.run_sync(Base.metadata.create_all)
         existing = await session.execute(select(AdminArea).where(AdminArea.id == "demo_district"))
         if existing.scalar_one_or_none():
-            print("[INFO] Demo seed already exists; leaving database unchanged.")
+            # Backfill records created by the earlier demo seeder without touching real reports.
+            aliases_by_name = {
+                "mandir": ["temple", "kali mandir", "काली मंदिर", "मंदिर"],
+                "puliya": ["bridge", "पुलिया"],
+                "school": ["विद्यालय", "स्कूल"],
+            }
+            gazetteer_rows = await session.execute(
+                select(Gazetteer).where(Gazetteer.admin_area_id == "demo_district")
+            )
+            for gaz in gazetteer_rows.scalars().all():
+                gaz.aliases = aliases_by_name.get(gaz.normalized_name, gaz.aliases or [])
+            synthetic_rows = await session.execute(
+                select(Incident).join(Report, Incident.report_id == Report.id).where(Report.is_synthetic.is_(True))
+            )
+            for incident in synthetic_rows.scalars().all():
+                geometry = incident.location
+                if isinstance(geometry, str):
+                    try:
+                        geometry = json.loads(geometry)
+                    except json.JSONDecodeError:
+                        geometry = None
+                if geometry:
+                    try:
+                        point = Point(shape(geometry).x, shape(geometry).y)
+                        incident.location = mapping(point)
+                        incident.lat, incident.lon = point.y, point.x
+                    except Exception:
+                        pass
+                incident.is_synthetic = True
+            await session.commit()
+            print("[INFO] Existing demo seed repaired; real reports were preserved.")
             await engine.dispose()
             return
         await create_admin_area(session)
