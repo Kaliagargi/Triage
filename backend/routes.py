@@ -30,6 +30,10 @@ class ReportStatus(BaseModel):
     transcript_text: Optional[str] = None
     extraction: Optional[dict] = None
     location: Optional[dict] = None
+    transcript_language: Optional[str] = None
+    transcription_error: Optional[str] = None
+    fixture_id: Optional[str] = None
+    incident: Optional[dict] = None
 
 
 class IncidentResponse(BaseModel):
@@ -94,9 +98,13 @@ async def upload_report(
     db: AsyncSession = Depends(get_db),
 ):
     # Validate content type
-    allowed = {"audio/wav", "audio/mpeg", "audio/mp3", "audio/x-wav", "audio/wave"}
-    if file.content_type not in allowed:
-        raise HTTPException(status_code=400, detail="Unsupported audio format")
+    allowed = {"audio/wav", "audio/mpeg", "audio/mp3", "audio/x-wav", "audio/wave", "audio/webm", "video/webm", "audio/ogg", "application/ogg", "audio/mp4", "audio/m4a", "audio/aac"}
+    suffix = Path(file.filename or "").suffix.lower()
+    allowed_suffixes = {".wav", ".mp3", ".webm", ".ogg", ".m4a", ".aac"}
+    if file.content_type not in allowed and suffix not in allowed_suffixes:
+        raise HTTPException(status_code=400, detail="Unsupported audio format. Use WAV, MP3, WEBM, OGG, M4A or AAC.")
+    if not suffix:
+        suffix = { "audio/wav": ".wav", "audio/x-wav": ".wav", "audio/wave": ".wav", "audio/mpeg": ".mp3", "audio/mp3": ".mp3", "audio/webm": ".webm", "video/webm": ".webm", "audio/ogg": ".ogg", "application/ogg": ".ogg", "audio/mp4": ".m4a", "audio/m4a": ".m4a", "audio/aac": ".aac" }.get(file.content_type, ".audio")
 
     contents = await file.read()
     sha256 = hashlib.sha256(contents).hexdigest()
@@ -105,7 +113,7 @@ async def upload_report(
     # Save audio to storage directory
     storage_dir = os.getenv("AUDIO_STORAGE", "storage/audio")
     os.makedirs(storage_dir, exist_ok=True)
-    audio_path = os.path.join(storage_dir, f"{report_id}.wav")
+    audio_path = os.path.join(storage_dir, f"{report_id}{suffix}")
     with open(audio_path, "wb") as f:
         f.write(contents)
 
@@ -125,7 +133,25 @@ async def upload_report(
     from .services.pipeline import process_report
     await process_report(report_id, audio_path, sha256, db)
 
-    return ReportStatus(id=report_id, status="processing")
+    saved_report = (await db.execute(select(Report).where(Report.id == report_id))).scalar_one()
+    saved_incident = (await db.execute(select(Incident).where(Incident.report_id == report_id))).scalar_one_or_none()
+    return ReportStatus(
+        id=saved_report.id, status=saved_report.status,
+        transcript_mode=saved_report.transcript_mode,
+        transcript_text=saved_report.transcript_text,
+        transcript_language=saved_report.transcript_language,
+        transcription_error=saved_report.transcription_error,
+        extraction=saved_report.extraction, fixture_id=saved_report.fixture_id,
+        location=saved_incident.location if saved_incident else None,
+        incident=({
+            "id": saved_incident.id, "hazard_type": saved_incident.hazard_type,
+            "urgency": saved_incident.urgency, "needs": saved_incident.needs,
+            "anchor_name": saved_incident.anchor_name,
+            "spatial_relation": saved_incident.spatial_relation,
+            "lat": saved_incident.lat, "lon": saved_incident.lon,
+            "review_status": saved_incident.review_status,
+        } if saved_incident else None),
+    )
 
 
 @router.get("/api/reports/{report_id}", response_model=ReportStatus)
@@ -150,7 +176,10 @@ async def get_report(report_id: str, db: AsyncSession = Depends(get_db)):
         transcript_mode=report.transcript_mode,
         transcript_text=report.transcript_text,
         extraction=extraction,
-        location=None,
+        location=(await db.execute(select(Incident.location).where(Incident.report_id == report.id))).scalar_one_or_none(),
+        transcript_language=report.transcript_language,
+        transcription_error=report.transcription_error,
+        fixture_id=report.fixture_id,
     )
 
 
@@ -275,21 +304,6 @@ async def map_data(db: AsyncSession = Depends(get_db)):
                 })
 
     return {"type": "FeatureCollection", "features": features}
-
-
-# ---------------------------------------------------------------------------
-# Destinations (seeded India cities)
-# ---------------------------------------------------------------------------
-
-@router.get("/api/destinations")
-async def get_destinations():
-    """Serve static GeoJSON of seeded Indian destinations."""
-    data_path = Path(__file__).parent / "data" / "india_destinations.geojson"
-    if not data_path.exists():
-        raise HTTPException(status_code=404, detail="Destinations data not found")
-    with open(data_path, "r", encoding="utf-8") as f:
-        content = json.load(f)
-    return content
 
 
 # ---------------------------------------------------------------------------
