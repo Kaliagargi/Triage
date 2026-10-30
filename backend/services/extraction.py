@@ -6,26 +6,26 @@ from typing import Any, Dict
 
 FIXTURE_DIR = os.getenv("EXTRACTION_FIXTURE_DIR", "data/extraction_fixtures")
 HAZARD_PATTERNS = {
-    "flood": (r"\bflood(?:ed|ing)?\b", r"\bpaani\s+(?:bhar|ghus)", r"\bwater\s+(?:logging|level|entered)\b", r"\bbaadh\b", r"\bdoob"),
-    "fire": (r"\bfire\b", r"\baag\s+lag", r"\bburning\b", r"\bdhua\b"),
-    "building_collapse": (r"\b(building|house|wall)\s+collaps", r"\bmakaan\s+gir", r"\bimaarat\s+gir"),
-    "road_blockage": (r"\broad\s+(?:blocked|blockage|closed)\b", r"\brasta\s+band\b", r"\bpul(?:iya)?\s+toot"),
+    "flood": (r"\bflood(?:ed|ing)?\b", r"\bpaani\s+(?:bhar|ghus)", r"पानी\s*(?:भर|घुस)", r"\bwater\s+(?:logging|level|entered)\b", r"\bbaadh\b", r"\bdoob"),
+    "fire": (r"\bfire\b", r"\baag\s+lag", r"आग\s*लग", r"\bburning\b", r"\bdhua\b"),
+    "building_collapse": (r"\b(building|house|wall)\s+collaps", r"\bmakaan\s+gir", r"\bimaarat\s+gir", r"(मकान|इमारत|दीवार)\s*(गिर|ढह)"),
+    "road_blockage": (r"\broad\s+(?:blocked|blockage|closed)\b", r"\brasta\s+band\b", r"\bpul(?:iya)?\s+toot", r"(सड़क|रास्ता)\s*(बंद|जाम)"),
 }
 NEED_PATTERNS = {
-    "rescue": (r"\b(rescue|trapped|stranded|fasa|fas[ae]|nikal[o]?)\b", r"\bhelp\s+us\b"),
-    "medical": (r"\b(medical|doctor|ambulance|injured|chot|behosh)\b",),
-    "food": (r"\b(food|khana|ration)\b",),
-    "drinking_water": (r"\b(drinking water|pani|water supply)\b",),
+    "rescue": (r"\b(rescue|trapped|stranded|fasa|fas[ae]|nikal[o]?)\b", r"\bhelp\s+us\b", r"(फँसे|फंसे|बचाओ|निकालो)"),
+    "medical": (r"\b(medical|doctor|ambulance|injured|chot|behosh)\b", r"(डॉक्टर|एम्बुलेंस|घायल|चोट|बेहोश)",),
+    "food": (r"\b(food|khana|ration)\b", r"(खाना|राशन)",),
+    "drinking_water": (r"\b(drinking water|pani|water supply)\b", r"(पीने का पानी|पानी की सप्लाई)",),
     "shelter": (r"\b(shelter|relief camp|rehne ki jagah)\b",),
     "water_pumping": (r"\b(pumping|pump out|drain water|paani nikal)\b",),
 }
 RELATION_PATTERNS = [
-    (r"\b(?:ke\s+)?peeche\b|\bbehind\b", "behind"),
-    (r"\b(?:ke\s+)?paas\b|\bnear(?:\s+to)?\b", "near"),
-    (r"\b(?:ke\s+)?samne\b|\bin\s+front\s+of\b|\bopposite\b", "opposite"),
+    (r"\b(?:ke\s+)?peeche\b|\bbehind\b|पीछे", "behind"),
+    (r"\b(?:ke\s+)?paas\b|\bnear(?:\s+to)?\b|पास", "near"),
+    (r"\b(?:ke\s+)?samne\b|\bin\s+front\s+of\b|\bopposite\b|सामने|विपरीत", "opposite"),
     (r"\b(?:ke\s+)?bagal\s+mein\b|\bnext\s+to\b", "near"),
 ]
-FILLER = {"paani", "pani", "bhar", "gaya", "gayi", "hai", "hain", "ho", "raha", "rahi", "flood", "water", "is", "has", "the", "at", "near", "behind", "peeche", "paas", "ke", "of", "in"}
+FILLER = {"है", "हैं", "था", "थी", "के", "की", "का", "में", "पर", "पानी", "भर", "गया", "गयी", "पीछे", "पास", "सामने", "paani", "pani", "bhar", "gaya", "gayi", "hai", "hain", "ho", "raha", "rahi", "flood", "water", "is", "has", "the", "at", "near", "behind", "peeche", "paas", "ke", "of", "in"}
 
 def load_fixture(sha256: str) -> Dict[str, Any]:
     fixture_dir = os.getenv("EXTRACTION_FIXTURE_DIR", FIXTURE_DIR)
@@ -44,8 +44,7 @@ def _matches(text: str, patterns: tuple[str, ...]) -> bool:
 
 def _extract_anchor(text: str, relation_match: re.Match) -> str:
     tokens = re.findall(r"[\w'-]+", text[:relation_match.start()].strip(" ,.;:-").lower())
-    while tokens and tokens[-1] in FILLER:
-        tokens.pop()
+    tokens = [token for token in tokens if token not in FILLER]
     return " ".join(tokens[-3:]).strip()
 
 def _valid_fixture(fixture: Dict[str, Any]) -> bool:

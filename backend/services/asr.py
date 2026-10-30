@@ -25,7 +25,7 @@ def _get_model():
     if _model is None:
         from faster_whisper import WhisperModel
         logger.info(f"Loading faster-whisper model '{ASR_MODEL_SIZE}' …")
-        _model = WhisperModel(ASR_MODEL_SIZE, device="cpu")
+        _model = WhisperModel(ASR_MODEL_SIZE, device="cpu", compute_type="int8")
         logger.success("faster-whisper model loaded.")
     return _model
 
@@ -81,7 +81,8 @@ async def _run_faster_whisper(audio_path: str) -> dict:
         model = _get_model()
         # faster-whisper returns a 2-tuple: (segments_generator, info_namedtuple)
         segments_gen, info = model.transcribe(
-            audio_path, word_timestamps=False, vad_filter=True
+            audio_path, word_timestamps=False, vad_filter=True,
+            initial_prompt="Indian disaster report in Hindi or Hinglish. Place names, landmarks, flood, baadh, paani, rescue, ambulance, road blockage, fire, mandir, school, pulia, basti, mohalla."
         )
         # Consume the generator to collect all segment texts
         text = " ".join([seg.text for seg in segments_gen])

@@ -35,3 +35,15 @@ def test_valid_fixture_takes_precedence(monkeypatch, tmp_path):
     result = extract_fields("Paani bhar gaya", "abc")
     assert result["source"] == "fixture"
     assert result["hazard_type"] == "fire"
+
+
+def test_devanagari_flood_and_landmark_phrase(monkeypatch, tmp_path):
+    monkeypatch.setenv("EXTRACTION_FIXTURE_DIR", str(tmp_path))
+    result = extract_fields(
+        "मंदिर के पीछे पानी भर गया है, लोग फँसे हैं बचाओ।",
+        "no-devanagari-fixture",
+    )
+    assert result["hazard_type"] == "flood"
+    assert result["anchor_name"] == "मंदिर"
+    assert result["spatial_relation"] == "behind"
+    assert "rescue" in result["needs"]

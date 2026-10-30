@@ -91,7 +91,7 @@ async def resolve_location(
         buffer_poly = _buffer_point(point, NEAR_BUFFER_M)
     elif rel in {"behind", "peeche", "back", "behind of"}:
         buffer_poly = _buffer_point(point, BEHIND_BUFFER_M)
-    elif rel in {"in front of", "samne", "front"}:
+    elif rel in {"in front of", "samne", "front", "opposite", "vipreet"}:
         buffer_poly = _buffer_point(point, NEAR_BUFFER_M)
     else:
         # Unsupported relation – return point only but flag review
