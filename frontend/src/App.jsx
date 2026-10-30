@@ -239,7 +239,8 @@ export default function App() {
             <span><i className="legend-dot medium" /> Medium urgency</span>
             <span><i className="legend-dot low" /> Other / unknown</span>
             <span><i className="legend-area" /> Approximate location</span>
-            <span><i className="legend-silent" /> Higher silence score</span>
+            <span><i className="legend-silent class-one" /> Class 1 · moderate reporting gap</span>
+            <span><i className="legend-silent class-two" /> Class 2 · high reporting gap</span>
           </div>
           {silentMeta?.quality_flag && <p className="quality-note">
             {silentMeta.quality_flag}: scores use configurable demo baselines, not measured exposure or vulnerability.
