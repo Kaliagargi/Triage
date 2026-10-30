@@ -7,6 +7,7 @@ from datetime import datetime
 from shapely.geometry import Point, Polygon, mapping
 import json
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -107,10 +108,14 @@ async def create_synthetic_reports(session: AsyncSession, count: int = 30):
 
 async def main():
     async with AsyncSessionLocal() as session:
-        # Drop and recreate tables for a clean demo
+        # Create missing tables without deleting real or previously reviewed data.
         async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.drop_all)
             await conn.run_sync(Base.metadata.create_all)
+        existing = await session.execute(select(AdminArea).where(AdminArea.id == "demo_district"))
+        if existing.scalar_one_or_none():
+            print("[INFO] Demo seed already exists; leaving database unchanged.")
+            await engine.dispose()
+            return
         await create_admin_area(session)
         await create_hazard_area(session)
         await create_gazetteer(session)
