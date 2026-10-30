@@ -12,3 +12,5 @@ aiosqlite==0.20.0
 faster-whisper==0.10.0
 loguru==0.7.2
 pydantic-settings==2.4.0
+
+pytest==8.3.4

@@ -114,7 +114,13 @@ async def process_report(
         approximate_area=location_res.get("buffer_geojson"),
         location_confidence=location_res.get("confidence"),
         extraction_confidence=extraction.get("confidence"),
-        review_status="needs_review" if location_res.get("needs_review") else "completed",
+        review_status=(
+            "needs_review"
+            if location_res.get("needs_review")
+            or extraction.get("needs_review", False)
+            or (extraction.get("confidence") or 0.0) < 0.60
+            else "completed"
+        ),
         lat=location_res.get("point_lat"),
         lon=location_res.get("point_lon"),
     )

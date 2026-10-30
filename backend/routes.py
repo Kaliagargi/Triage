@@ -9,7 +9,8 @@ from typing import List, Optional
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from shapely.geometry import Point, mapping
 from loguru import logger
 
 from .db import get_db
@@ -43,6 +44,30 @@ class IncidentResponse(BaseModel):
     review_status: Optional[str] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
+    needs: Optional[List[str]] = None
+    extraction_confidence: Optional[float] = None
+    location_confidence: Optional[float] = None
+    water_level_description: Optional[str] = None
+
+
+class IncidentPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    hazard_type: Optional[str] = Field(default=None, max_length=80)
+    urgency: Optional[str] = Field(default=None, max_length=40)
+    water_level_description: Optional[str] = Field(default=None, max_length=200)
+    needs: Optional[List[str]] = None
+    place_phrase_original: Optional[str] = Field(default=None, max_length=300)
+    anchor_name: Optional[str] = Field(default=None, max_length=160)
+    spatial_relation: Optional[str] = Field(default=None, max_length=80)
+    review_status: Optional[str] = Field(default=None, max_length=40)
+    lat: Optional[float] = Field(default=None, ge=-90, le=90)
+    lon: Optional[float] = Field(default=None, ge=-180, le=180)
+
+    @model_validator(mode="after")
+    def require_non_empty_patch(self):
+        if not self.model_fields_set:
+            raise ValueError("At least one field must be provided")
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -134,8 +159,21 @@ async def get_report(report_id: str, db: AsyncSession = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @router.get("/api/incidents", response_model=List[IncidentResponse])
-async def list_incidents(db: AsyncSession = Depends(get_db)):
-    stmt = select(Incident).order_by(Incident.created_at.desc())
+async def list_incidents(
+    review_status: Optional[str] = None,
+    hazard_type: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+):
+    limit = min(max(limit, 1), 500)
+    offset = max(offset, 0)
+    stmt = select(Incident)
+    if review_status:
+        stmt = stmt.where(Incident.review_status == review_status)
+    if hazard_type:
+        stmt = stmt.where(Incident.hazard_type == hazard_type)
+    stmt = stmt.order_by(Incident.created_at.desc()).limit(limit).offset(offset)
     result = await db.execute(stmt)
     incidents = result.scalars().all()
     return [
@@ -151,6 +189,10 @@ async def list_incidents(db: AsyncSession = Depends(get_db)):
             review_status=inc.review_status,
             lat=inc.lat,
             lon=inc.lon,
+            needs=inc.needs,
+            extraction_confidence=inc.extraction_confidence,
+            location_confidence=inc.location_confidence,
+            water_level_description=inc.water_level_description,
         )
         for inc in incidents
     ]
@@ -158,45 +200,42 @@ async def list_incidents(db: AsyncSession = Depends(get_db)):
 
 @router.patch("/api/incidents/{incident_id}")
 async def patch_incident(
-    incident_id: str, payload: dict, db: AsyncSession = Depends(get_db)
+    incident_id: str,
+    payload: IncidentPatch,
+    db: AsyncSession = Depends(get_db),
 ):
-    # Fetch the incident
-    stmt = select(Incident).where(Incident.id == incident_id)
-    result = await db.execute(stmt)
+    result = await db.execute(select(Incident).where(Incident.id == incident_id))
     incident = result.scalar_one_or_none()
-    if not incident:
+    if incident is None:
         raise HTTPException(status_code=404, detail="Incident not found")
 
-    # Updatable fields
-    updatable = {
-        "hazard_type", "urgency", "water_level_description", "needs",
-        "place_phrase_original", "anchor_name", "spatial_relation",
-        "review_status", "lat", "lon",
-    }
+    changes = payload.model_dump(exclude_unset=True)
+    new_lat = changes.get("lat", incident.lat)
+    new_lon = changes.get("lon", incident.lon)
+    if (new_lat is None) != (new_lon is None):
+        raise HTTPException(status_code=422, detail="Latitude and longitude must both be available")
 
-    for field, new_value in payload.items():
-        if field not in updatable:
+    for field, new_value in changes.items():
+        old_value = getattr(incident, field)
+        if old_value == new_value:
             continue
-        old_value = getattr(incident, field, None)
         setattr(incident, field, new_value)
-        # Record feedback for audit trail
-        fb = Feedback(
+        db.add(Feedback(
             id=str(uuid4()),
             incident_id=incident_id,
             field=field,
-            before=str(old_value) if old_value is not None else None,
-            after=str(new_value) if new_value is not None else None,
-        )
-        db.add(fb)
+            before=json.dumps(old_value, ensure_ascii=False, default=str),
+            after=json.dumps(new_value, ensure_ascii=False, default=str),
+        ))
+
+    if "lat" in changes or "lon" in changes:
+        incident.location = mapping(Point(float(new_lon), float(new_lat))) if new_lat is not None else None
+        incident.review_status = "confirmed"
 
     await db.commit()
-    logger.info(f"Incident {incident_id} patched: {list(payload.keys())}")
-    return JSONResponse(content={"status": "updated", "fields": list(payload.keys())})
+    logger.info(f"Incident {incident_id} patched: {list(changes.keys())}")
+    return {"status": "updated", "fields": list(changes.keys()), "incident_id": incident_id}
 
-
-# ---------------------------------------------------------------------------
-# Map data (GeoJSON FeatureCollection from incidents)
-# ---------------------------------------------------------------------------
 
 @router.get("/api/map-data")
 async def map_data(db: AsyncSession = Depends(get_db)):
