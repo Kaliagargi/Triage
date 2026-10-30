@@ -24,7 +24,7 @@ async def create_admin_area(session: AsyncSession):
     admin = AdminArea(
         id="demo_district",
         name="Demo District",
-        boundary=json.dumps(mapping(poly)),
+        boundary=mapping(poly),
         source="synthetic",
         is_synthetic=True,
     )
@@ -38,9 +38,9 @@ async def create_hazard_area(session: AsyncSession):
     hazard = HazardArea(
         id=str(uuid.uuid4()),
         hazard_type="flood",
-        geometry=json.dumps(mapping(flood)),
+        geometry=mapping(flood),
         source="synthetic",
-        source_date=datetime.utcnow().date(),
+        source_date=datetime.utcnow(),
         is_illustrative=True,
     )
     session.add(hazard)
@@ -61,7 +61,7 @@ async def create_gazetteer(session: AsyncSession):
             aliases=p["aliases"],
             feature_type="landmark",
             admin_area_id="demo_district",
-            location=json.dumps(mapping(p["point"])),
+            location=mapping(p["point"]),
             source="synthetic",
             verified_for_demo=True,
         )
@@ -93,9 +93,14 @@ async def create_synthetic_reports(session: AsyncSession, count: int = 30):
             hazard_type="flood",
             urgency="low",
             place_phrase_original="synthetic report",
-            location=json.dumps(mapping(Point(lon, lat))),
+            location=mapping(Point(lon, lat)),
             approximate_area=None,
-            review_status="auto",
+            lat=lat,
+            lon=lon,
+            extraction_confidence=0.75,
+            location_confidence=0.75,
+            review_status="needs_review",
+            is_synthetic=True,
         )
         session.add(incident)
     await session.flush()
