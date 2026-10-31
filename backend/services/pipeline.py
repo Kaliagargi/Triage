@@ -68,68 +68,73 @@ async def process_report(
     logger.info(f"Report {report_id}: transcription complete ({transcription.get('mode')})")
 
     # -----------------------------------------------------------------
-    # 2️⃣ Extraction (fixture based)
+    # 2️⃣ Extraction → geocoding → persistence
     # -----------------------------------------------------------------
-    extraction = extract_fields(transcription.get("text", ""), sha256)
+    # Any failure after transcription must leave the report in a terminal
+    # failed state instead of stranding it at "transcribed" or "extracted".
+    try:
+        extraction = extract_fields(transcription.get("text", ""), sha256)
 
-    # Store extraction as JSON string — the column is JSON type but we
-    # pass the dict directly so SQLAlchemy serialises it properly.
-    await _update_report_status(
-        db,
-        report_id,
-        status="extracted",
-        extraction=extraction,
-    )
-    logger.info(f"Report {report_id}: extraction complete (confidence={extraction.get('confidence')})")
+        await _update_report_status(
+            db,
+            report_id,
+            status="extracted",
+            extraction=extraction,
+        )
+        logger.info(
+            f"Report {report_id}: extraction complete "
+            f"(confidence={extraction.get('confidence')})"
+        )
 
-    # -----------------------------------------------------------------
-    # 3️⃣ Landmark geocoding (point + buffer)
-    # -----------------------------------------------------------------
-    location_res = await resolve_location(
-        extraction.get("place_phrase", ""),
-        extraction.get("anchor_name", ""),
-        extraction.get("spatial_relation", ""),
-        db,
-    )
-    logger.info(
-        f"Report {report_id}: geocoding complete "
-        f"(confidence={location_res.get('confidence')}, "
-        f"needs_review={location_res.get('needs_review')})"
-    )
+        location_res = await resolve_location(
+            extraction.get("place_phrase", ""),
+            extraction.get("anchor_name", ""),
+            extraction.get("spatial_relation", ""),
+            db,
+        )
+        logger.info(
+            f"Report {report_id}: geocoding complete "
+            f"(confidence={location_res.get('confidence')}, "
+            f"needs_review={location_res.get('needs_review')})"
+        )
 
-    # -----------------------------------------------------------------
-    # 4️⃣ Create Incident ORM object
-    # -----------------------------------------------------------------
-    incident = Incident(
-        id=str(uuid.uuid4()),
-        report_id=report_id,
-        hazard_type=extraction.get("hazard_type"),
-        urgency=extraction.get("urgency"),
-        water_level_description=extraction.get("water_level_description"),
-        needs=extraction.get("needs"),
-        place_phrase_original=extraction.get("place_phrase"),
-        anchor_name=extraction.get("anchor_name"),
-        spatial_relation=extraction.get("spatial_relation"),
-        location=location_res.get("point_geojson"),
-        approximate_area=location_res.get("buffer_geojson"),
-        location_confidence=location_res.get("confidence"),
-        extraction_confidence=extraction.get("confidence"),
-        review_status=(
-            "needs_review"
-            if location_res.get("needs_review")
-            or extraction.get("needs_review", False)
-            or (extraction.get("confidence") or 0.0) < 0.60
-            else "completed"
-        ),
-        lat=location_res.get("point_lat"),
-        lon=location_res.get("point_lon"),
-    )
-    db.add(incident)
-    await db.commit()
-    logger.info(f"Report {report_id}: incident {incident.id} created")
+        incident = Incident(
+            id=str(uuid.uuid4()),
+            report_id=report_id,
+            hazard_type=extraction.get("hazard_type"),
+            urgency=extraction.get("urgency"),
+            water_level_description=extraction.get("water_level_description"),
+            needs=extraction.get("needs"),
+            place_phrase_original=extraction.get("place_phrase"),
+            anchor_name=extraction.get("anchor_name"),
+            spatial_relation=extraction.get("spatial_relation"),
+            location=location_res.get("point_geojson"),
+            approximate_area=location_res.get("buffer_geojson"),
+            location_confidence=location_res.get("confidence"),
+            extraction_confidence=extraction.get("confidence"),
+            review_status=(
+                "needs_review"
+                if location_res.get("needs_review")
+                or extraction.get("needs_review", False)
+                or (extraction.get("confidence") or 0.0) < 0.60
+                else "completed"
+            ),
+            lat=location_res.get("point_lat"),
+            lon=location_res.get("point_lon"),
+        )
+        db.add(incident)
+        await db.commit()
+        logger.info(f"Report {report_id}: incident {incident.id} created")
 
-    # -----------------------------------------------------------------
-    # 5️⃣ Final report status
-    # -----------------------------------------------------------------
-    await _update_report_status(db, report_id, status="completed")
-    logger.success(f"Report {report_id}: pipeline complete ✓")
+        await _update_report_status(db, report_id, status="completed")
+        logger.success(f"Report {report_id}: pipeline complete ✓")
+    except Exception:
+        # Roll back any pending ORM work before attempting the status update.
+        await db.rollback()
+        logger.exception(f"Report {report_id}: extraction/geocoding pipeline failed")
+        try:
+            await _update_report_status(db, report_id, status="failed")
+        except Exception:
+            await db.rollback()
+            logger.exception(f"Report {report_id}: could not persist failed status")
+        raise
