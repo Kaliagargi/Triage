@@ -106,15 +106,29 @@ def _matches(text: str, patterns: tuple[str, ...]) -> bool:
 
 
 
-def _extract_anchor(text: str, relation_match: re.Match) -> str:
-    """Extract landmark words without splitting Devanagari graphemes."""
-    prefix = text[:relation_match.start()].strip(" ,.;:-।")
 
-    # Split on whitespace and punctuation, preserving Unicode graphemes.
+def _extract_anchor(text: str, relation_match: re.Match) -> str:
+    """Extract the likely landmark immediately before a spatial relation."""
+
+    prefix = text[:relation_match.start()].strip(" ,.;:-।")
     tokens = re.split(r"[\s,.;:!?।]+", prefix)
     tokens = [token for token in tokens if token and token not in FILLER]
 
-    return " ".join(tokens[-3:]).strip()
+    # Remove common incident-description words that are not landmarks.
+    non_landmark_words = {
+        "there", "fire", "flood", "accident", "building",
+        "collapse", "people", "trapped", "incident", "nearby",
+        "is", "was", "are", "has", "have", "the", "a", "an",
+    }
+
+    tokens = [
+        token for token in tokens
+        if token.lower() not in non_landmark_words
+    ]
+
+    # The landmark is usually the final one or two meaningful words.
+    return " ".join(tokens[-2:]).strip()
+
 
 
 def _valid_fixture(fixture: Dict[str, Any]) -> bool:
@@ -231,3 +245,19 @@ def extract_fields(transcript: str, sha256: str) -> Dict[str, Any]:
         "source": "rules",
         "needs_review": confidence < 0.60 or hazard is None or not anchor,
     }
+    
+def test_fire_report_extracts_actual_landmark(monkeypatch, tmp_path):
+    monkeypatch.setenv("EXTRACTION_FIXTURE_DIR", str(tmp_path))
+
+    result = extract_fields(
+        "There is a fire near the Hanuman temple opposite the main market. "
+        "Several people are trapped inside. Please send emergency help immediately.",
+        "no-fire-fixture",
+    )
+
+    assert result["hazard_type"] == "fire"
+    assert result["anchor_name"] == "Hanuman temple"
+    assert result["spatial_relation"] == "near"
+    assert result["urgency"] == "high"
+    assert result["needs_review"] is False
+
