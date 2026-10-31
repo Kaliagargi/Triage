@@ -166,12 +166,23 @@ async def _load_hazard_geometry(db: AsyncSession):
     if not geometries:
         return None
 
+    # Avoid Shapely's array-based union_all path for a single geometry.
+    # Some Shapely/NumPy combinations fail in create_collection even when
+    # the input is one valid Polygon; no union is needed in that case.
+    if len(geometries) == 1:
+        return geometries[0]
+
+    # Combine incrementally instead of passing a Python list through
+    # unary_union/union_all (which constructs a NumPy geometry collection).
+    combined = geometries[0]
     try:
-        return unary_union(geometries)
+        for geometry in geometries[1:]:
+            combined = combined.union(geometry)
+        return combined
     except Exception:
         logger.exception("Could not combine flood hazard geometries")
-        # Fall back to the valid geometry with the largest area rather than
-        # crashing the endpoint. The result remains explicitly illustrative.
+        # Preserve a valid geometry and keep the demo operational. This
+        # fallback is illustrative and may under-represent total hazard area.
         return max(geometries, key=lambda geometry: geometry.area)
 
 
