@@ -1,4 +1,8 @@
+# Environment secrets
 .env*
+!.env.example
+
+# Python
 .venv/
 __pycache__/
 *.py[cod]
@@ -8,13 +12,30 @@ __pycache__/
 .mypy_cache/
 .coverage
 htmlcov/
+
+# Notebooks
 .ipynb_checkpoints/
+
+# Runtime data and databases
 *.sqlite
 *.db
+storage/
+data/asr_cache/
+data/extraction_fixtures/
+demo.db
+
+# Frontend
+node_modules/
+dist/
+build/
+.vite/
+
+# IDEs
 .vscode/
 .idea/
-node_modules/
-/dist/
-/build/
+
+# Logs and OS files
 *.log
 .DS_Store
+Thumbs.db
+desktop.ini
