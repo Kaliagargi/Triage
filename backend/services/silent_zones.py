@@ -15,6 +15,7 @@ from loguru import logger
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from shapely.geometry import Polygon, mapping, shape
+from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
 from ..models import Incident, SilentZoneScore, HazardArea
@@ -125,16 +126,53 @@ def _build_grid(points: List[tuple]) -> List[dict]:
 
 
 async def _load_hazard_geometry(db: AsyncSession):
-    result = await db.execute(select(HazardArea.geometry).where(HazardArea.hazard_type == "flood"))
-    geometries = []
+    result = await db.execute(
+        select(HazardArea.geometry).where(HazardArea.hazard_type == "flood")
+    )
+    geometries: List[BaseGeometry] = []
+
     for value in result.scalars().all():
         try:
             if isinstance(value, str):
                 value = json.loads(value)
-            geometries.append(shape(value))
-        except (TypeError, ValueError, json.JSONDecodeError):
-            logger.warning("Ignoring malformed illustrative hazard geometry")
-    return unary_union(geometries) if geometries else None
+
+            # Database JSON may contain GeoJSON geometry, a Feature wrapper,
+            # or null/legacy values. Normalize to a Shapely geometry and
+            # never pass non-geometry objects into unary_union.
+            if not isinstance(value, dict):
+                logger.warning(
+                    "Ignoring hazard geometry with unsupported type: %s",
+                    type(value).__name__,
+                )
+                continue
+            if value.get("type") == "Feature":
+                value = value.get("geometry")
+            if not isinstance(value, dict) or not value.get("type"):
+                logger.warning("Ignoring empty or malformed hazard geometry")
+                continue
+
+            geometry = shape(value)
+            if not isinstance(geometry, BaseGeometry) or geometry.is_empty:
+                logger.warning("Ignoring empty hazard geometry")
+                continue
+            if not geometry.is_valid:
+                logger.warning("Ignoring invalid hazard geometry")
+                continue
+            geometries.append(geometry)
+        except Exception:
+            # One malformed stored row must not prevent analysis of the rest.
+            logger.exception("Ignoring malformed illustrative hazard geometry row")
+
+    if not geometries:
+        return None
+
+    try:
+        return unary_union(geometries)
+    except Exception:
+        logger.exception("Could not combine flood hazard geometries")
+        # Fall back to the valid geometry with the largest area rather than
+        # crashing the endpoint. The result remains explicitly illustrative.
+        return max(geometries, key=lambda geometry: geometry.area)
 
 
 def _exposure_for_cell(area_id: str, hazard_geometry) -> float:
