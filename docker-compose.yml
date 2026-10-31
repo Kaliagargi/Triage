@@ -8,7 +8,6 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
       - db_data:/var/lib/postgresql/data
 
   backend:
@@ -18,12 +17,12 @@ services:
     env_file:
       - .env
     depends_on:
-      db:
+      - db
     ports:
       - "8000:8000"
     command: uvicorn backend.app:app --host 0.0.0.0 --port 8000
     volumes:
-      - ./backend/data:/app/backend/data
+      - ./data:/app/data
       - ./storage:/app/storage
 
   frontend:
